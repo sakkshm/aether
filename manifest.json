@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Aether",
+  "version": "0.0.1",
+  "description": "A basic Plasmo extension.",
+  "permissions": [
+    "storage"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "huggingface/Xenova/all-MiniLM-L6-v2/*",
+        "wasm/*"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-eval' 'unsafe-eval'; connect-src 'self'; object-src 'self'"
+  }
+}
