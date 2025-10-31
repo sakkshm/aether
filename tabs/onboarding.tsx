@@ -67,7 +67,7 @@ export default function OnboardingPage({ onClose }) {
     try {
       setStatus(AvailabilityStatus.DOWNLOADING)
       await downloadModel((loaded) => {
-        const pct = Math.min(100, Math.floor(loaded))
+        const pct = Math.min(100, Math.floor(loaded * 100))
         setProgress(pct)
       })
       setStatus(AvailabilityStatus.AVAILABLE)
@@ -79,7 +79,7 @@ export default function OnboardingPage({ onClose }) {
 
   const getButtonStyle = (isPrimary: boolean) => ({
     padding: "14px 28px",
-    background: isPrimary ? UI_COLORS.primaryAccent : "rgba(255,255,255,0.1)",
+    background: "#4f378a",
     color: "#fff",
     border: "none",
     borderRadius: "14px",
@@ -230,7 +230,7 @@ export default function OnboardingPage({ onClose }) {
                   onClick={handleFinish}
                   style={{
                     ...getButtonStyle(true),
-                    background: '#22c55e',
+                    background: '#a575fe',
                     color: "#fff"
                   }}>
                     <a href="https://gemini.google.com" style={{ textDecoration: 'none', color: 'inherit' }}>
