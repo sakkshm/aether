@@ -10,7 +10,7 @@ export const config: PlasmoCSConfig = {
   ]
 }
 
-console.log("Prompt saver content script loaded.");
+console.log("[Aether] Prompt saver content script loaded.");
 
 // --- Type Definitions ---
 interface SiteConfig {
@@ -37,7 +37,7 @@ const siteSelectors: SiteSelectors = {
     button: "button.send-button",
   },
   "grok.com": {
-    textarea: "div[contenteditable='true']", 
+    textarea: "div[contenteditable='true']",
     button: "button[aria-label='Submit']",
   }
 };
@@ -55,14 +55,14 @@ function getSiteConfig(): SiteConfig | null {
 
 function sendPromptMessage(promptText: string): void {
   if (!chrome.runtime?.id) {
-    console.warn("Extension context invalidated. Please refresh the page.");
+    console.warn("[Aether] Extension context invalidated. Please refresh the page.");
     return;
   }
-  
-  console.log("Raw prompt text read:", JSON.stringify(promptText));
+
+  console.log("[Aether] Raw prompt text read:", JSON.stringify(promptText));
 
   if (promptText && promptText.trim()) {
-    console.log("Sending prompt to background:", promptText.trim());
+    console.log("[Aether] Sending prompt to background:", promptText.trim());
     chrome.runtime.sendMessage(
       {
         action: "savePrompt",
@@ -77,7 +77,7 @@ function sendPromptMessage(promptText: string): void {
       }
     );
   } else {
-    console.log("Prompt text was empty or just whitespace. Not sending.");
+    console.log("[Aether] Prompt text was empty or just whitespace. Not sending.");
   }
 }
 
@@ -91,55 +91,55 @@ function getElementText(el: Element | null): string {
 function initPromptListeners(): void {
   const config = getSiteConfig();
   if (!config) {
-    console.log("No config for this site.");
+    console.log("[Aether] No config for this site.");
     return;
   }
-  
+
   let lastKnownPromptText = "";
 
   // --- LISTENER 1: For Button Clicks ---
-  console.log("Attaching DELEGATED mousedown listener to document.");
+  console.log("[Aether] Attaching DELEGATED mousedown listener to document.");
   document.addEventListener("mousedown", (event: MouseEvent) => {
     const target = event.target as HTMLElement;
     const button = target.closest(config.button);
 
     if (button) {
-      console.log("Delegated mousedown detected on button!");
+      console.log("[Aether] Delegated mousedown detected on button!");
       const textarea = document.querySelector(config.textarea);
 
       if (!textarea) {
-        console.error("Button clicked, but could not find textarea!");
+        console.error("[Aether] Button clicked, but could not find textarea!");
         return;
       }
-      
+
       const promptText = getElementText(textarea);
       sendPromptMessage(promptText);
     }
   });
 
   // --- LISTENER 2: 'input' (for Caching) ---
-  console.log("Attaching DELEGATED input listener (CAPTURE phase) for caching.");
+  console.log("[Aether] Attaching DELEGATED input listener (CAPTURE phase) for caching.");
   document.addEventListener("input", (event: Event) => {
     const target = event.target as HTMLElement;
     const textarea = target.closest(config.textarea);
-    
+
     if (textarea) {
       lastKnownPromptText = getElementText(textarea);
     }
   }, true); // Use capture phase
 
-  
+
   // --- LISTENER 3: 'keydown' (for Sending) ---
-  console.log("Attaching DELEGATED keydown listener (CAPTURE phase) for sending.");
+  console.log("[Aether] Attaching DELEGATED keydown listener (CAPTURE phase) for sending.");
   document.addEventListener("keydown", (event: KeyboardEvent) => {
     const target = event.target as HTMLElement;
     const textarea = target.closest(config.textarea);
 
     if (textarea && event.key === 'Enter' && !event.shiftKey) {
-      console.log("'Enter' keydown detected! Sending last known prompt.");
-      
+      console.log("[Aether] 'Enter' keydown detected! Sending last known prompt.");
+
       sendPromptMessage(lastKnownPromptText);
-      lastKnownPromptText = ""; 
+      lastKnownPromptText = "";
     }
   }, true); // Use capture phase
 }

@@ -1,66 +1,68 @@
-// popup/index.tsx
-
 import { useStorage } from "@plasmohq/storage/hook"
 import { Storage } from "@plasmohq/storage"
 import "./popup.css"
 
-// 2. Create a storage instance that points to "local"
-const localStore = new Storage({
-  area: "local"
-})
+const localStore = new Storage({ area: "local" })
 
 function PopupIndex() {
-  // 3. Tell the hook to use your "local" storage instance
-  const [prompts, setPrompts] = useStorage(
-    {
-      key: "prompts",
-      instance: localStore
-    },
-    [] // The default value (empty array) goes here
+  const [memories, setMemories] = useStorage(
+    { key: "memories", instance: localStore },
+    [] // default value
   )
 
-  const handleDelete = (timestamp) => {
-    const newPrompts = prompts.filter((p) => p.timestamp !== timestamp)
-    setPrompts(newPrompts)
+  const handleDelete = (timestamp: string) => {
+    const newMemories = memories.filter((m) => m.timestamp !== timestamp)
+    setMemories(newMemories)
   }
 
-  const displayedPrompts = [...prompts].reverse()
+  const displayedMemories = [...memories].reverse()
 
   return (
-    <div style={{ width: "350px" }}>
-      <h1>Saved Prompts</h1>
-      <ul id="prompts-list">
-        {displayedPrompts.length === 0 ? (
-          <li className="empty-message">No prompts saved yet.</li>
+    <div style={{ width: "380px" }}>
+      <h1>Stored Memories</h1>
+      <ul id="memories-list">
+        {displayedMemories.length === 0 ? (
+          <li className="empty-message">No memories saved yet.</li>
         ) : (
-          displayedPrompts.map((prompt) => {
-            // Handle possible invalid URL in prompt.origin
+          displayedMemories.map((memory) => {
             let originHost = "Unknown Origin"
             try {
-              originHost = new URL(prompt.origin).hostname
+              originHost = new URL(memory.origin).hostname
             } catch (e) {
-              console.warn("Invalid prompt origin URL:", prompt.origin)
+              console.warn("[Aether] Invalid memory origin:", memory.origin)
             }
-            
-            const promptDate = new Date(prompt.timestamp).toLocaleString()
+
+            const memoryDate = new Date(memory.timestamp).toLocaleString()
 
             return (
               <li
-                key={prompt.timestamp}
-                className="prompt-item"
-                data-timestamp={prompt.timestamp}
+                key={memory.timestamp}
+                className="memory-item"
+                data-timestamp={memory.timestamp}
               >
-                <span className="prompt-meta">
-                  {`${originHost} - ${promptDate}`}
-                </span>
-                <p className="prompt-text">{prompt.text}</p>
-                <button
-                  className="delete-btn"
-                  title="Delete prompt"
-                  onClick={() => handleDelete(prompt.timestamp)}
-                >
-                  &times;
-                </button>
+                <div className="memory-header">
+                  <span className="memory-meta">
+                    {`${originHost} — ${memoryDate}`}
+                  </span>
+                  <button
+                    className="delete-btn"
+                    title="Delete memory"
+                    onClick={() => handleDelete(memory.timestamp)}
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <p className="memory-text">{memory.memory}</p>
+                {memory.tags?.length > 0 && (
+                  <div className="memory-tags">
+                    {memory.tags.map((tag, i) => (
+                      <span key={i} className="tag">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </li>
             )
           })

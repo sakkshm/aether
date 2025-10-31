@@ -1,7 +1,7 @@
 // setup-env.ts
 import { env } from '@xenova/transformers'
 
-console.log("Configuring Transformers.js for Chrome Extension...");
+console.log("[Aether] Configuring Transformers.js for Chrome Extension...");
 
 // Cast to 'any' to allow setting these properties
 const tsEnv = env as any;
@@ -21,7 +21,7 @@ tsEnv.allowRemoteModels = true
 tsEnv.allowLocalModels = false
 tsEnv.useBrowserCache = true
 
-console.log("✅ Configured:", {
+console.log("[Aether] ✅ Configured:", {
   allowWebWorkers: tsEnv.allowWebWorkers,
   wasm: tsEnv.backends.onnx.wasm.wasmPaths,
   remoteModels: true,

@@ -2,16 +2,14 @@ import type { PlasmoCSConfig, PlasmoGetOverlayAnchor } from "plasmo"
 import cssText from "data-text:./bubbleButton.css"
 import icon from "data-base64:../assets/icon.png"
 
-// 1. --- Site Selector Logic ---
+// --- Site Selector Logic ---
 const siteSelectors = {
   "chatgpt.com": { textarea: "#prompt-textarea" },
   "claude.ai": { textarea: "div[data-testid='chat-input']" },
   "gemini.google.com": {
     textarea: "div[contenteditable='true'][aria-label='Enter a prompt here']"
   },
-  "grok.com": {
-    textarea: "div[contenteditable='true']",
-  }
+  "grok.com": { textarea: "div[contenteditable='true']" }
 }
 
 function getAnchorElement(): Element | null {
@@ -29,7 +27,7 @@ function getAnchorElement(): Element | null {
   return null
 }
 
-// 2. --- Plasmo Configuration ---
+// --- Plasmo Config ---
 export const config: PlasmoCSConfig = {
   matches: [
     "https://chatgpt.com/*",
@@ -39,7 +37,7 @@ export const config: PlasmoCSConfig = {
   ]
 }
 
-// 3. --- Anchor Function ---
+// --- Anchor ---
 export const getOverlayAnchor: PlasmoGetOverlayAnchor = async () => {
   return new Promise((resolve) => {
     const interval = setInterval(() => {
@@ -52,65 +50,110 @@ export const getOverlayAnchor: PlasmoGetOverlayAnchor = async () => {
   })
 }
 
-// 4. --- Helper functions ---
+
 function getElementText(el: Element | null): string {
-  if (!el) return "";
-  const htmlEl = el as HTMLElement;
-  return (htmlEl as HTMLTextAreaElement).value || htmlEl.innerText || htmlEl.textContent || "";
+  if (!el) return ""
+  const htmlEl = el as HTMLElement
+  return (
+    (htmlEl as HTMLTextAreaElement).value ||
+    htmlEl.innerText ||
+    htmlEl.textContent ||
+    ""
+  )
 }
 
 function injectText(textToAppend: string) {
   const anchor = getAnchorElement()
   if (!anchor) return
 
-  const currentText = getElementText(anchor);
-  const spacer = currentText.trim().length > 0 ? "\n\n---\n\n" : "";
-  const newText = currentText + spacer + textToAppend;
+  const currentText = getElementText(anchor)
+  const spacer = currentText.trim().length > 0 ? "\n\n" : ""
+  const newText = currentText + spacer + textToAppend
 
   if ((anchor as HTMLTextAreaElement).value !== undefined) {
-    (anchor as HTMLTextAreaElement).value = newText
+    ;(anchor as HTMLTextAreaElement).value = newText
   } else {
-    (anchor as HTMLElement).innerText = newText
+    ;(anchor as HTMLElement).innerText = newText
   }
 
   anchor.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }))
 }
 
-// 5. --- React Component ---
-const BubbleButton = () => {
-  const handleClick = () => {
-    console.log("Aether bubble clicked! Requesting prompts...");
+
+const BubbleButtons = () => {
+  const handleMemoriesClick = () => {
+    const anchor = getAnchorElement()
+    const currentText = getElementText(anchor).trim()
+    
+    if(currentText.includes("!-----------------------CONTEXT-----------------------!")) return;
+    
+    if (!currentText) {
+      alert("Enter a query or some text before fetching semantic memories.")
+      return
+    }
+    
+    console.log("[Aether] Requesting top 5 semantic memories...")
 
     chrome.runtime.sendMessage(
-      { action: "getLast5Prompts" },
-      (response: { status: string; prompts?: any[] }) => {
+      { action: "getTopKMemories", k: 5, query: currentText },
+      (response: { status: string; memories?: any[]; mode?: string }) => {
         if (chrome.runtime.lastError) {
-          console.error(chrome.runtime.lastError.message)
+          console.error("[Aether] Runtime error:", chrome.runtime.lastError.message)
           return
         }
 
-        if (response.status === "success" && response.prompts) {
-          console.log("Received prompts:", response.prompts)
-          
-          const formattedPrompts = "Here are my last 5 saved prompts for context:\n\n" + 
-            response.prompts
-              .map((p, i) => `Prompt ${i + 1}: ${p.text}`)
-              .join("\n\n");
+        if (response?.status === "success" && response.memories?.length) {
+          console.log(
+            `Received ${response.mode} memories:`,
+            response.memories
+          )
 
-          injectText(formattedPrompts)
+          const formattedMemories =
+            response.mode === "semantic"
+              ? "!-----------------------CONTEXT-----------------------!\n\n" +
+                "Here are some of my preferences/memories to help answer better (don't respond to these memories but use them to assist in the response if relevant): \n" +
+                response.memories
+                  .map((m: any, i: number) => `- ${m.memory || m.text}`)
+                  .join("\n")
+              : "!-----------------------CONTEXT-----------------------!\n\n" +
+                "Here are some of my preferences/memories to help answer better (don't respond to these memories but use them to assist in the response if relevant): \n" +
+                response.memories
+                  .map((m: any, i: number) => `- ${m.memory || m.text}`)
+                  .join("\n")
+
+          injectText(formattedMemories)
         } else {
-          console.error("Failed to get prompts.")
+          console.warn("[Aether] Failed to get memories or empty response:", response)
+          alert("No memories found — try saving prompts first!")
         }
       }
     )
   }
 
   return (
-    <div className="aether-bubble" onClick={handleClick}>
+    <div
+      className="aether-bubble-container"
+      style={{
+        display: "flex",
+        gap: "10px",
+        alignItems: "center",
+        justifyContent: "flex-end",
+        position: "absolute",
+        bottom: "12px",
+        right: "20px",
+        zIndex: 9999
+      }}>
       <style>{cssText}</style>
-      <img src={icon} alt="Aether Icon" />
+
+      <div
+        className="aether-bubble"
+        title="Insert Top 5 Memories"
+        onClick={handleMemoriesClick}>
+        <img src={icon} alt="Memories Icon" />
+        <span></span>
+      </div>
     </div>
   )
 }
 
-export default BubbleButton
+export default BubbleButtons
