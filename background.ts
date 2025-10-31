@@ -1,4 +1,3 @@
-// background.ts
 import "./setup-env.ts"
 import { Storage } from "@plasmohq/storage"
 import type { EntityDB as EntityDBType } from "@babycommando/entity-db"
@@ -40,16 +39,16 @@ const dbPromise: Promise<DbHandles> = (async () => {
     
     const listStorage = new Storage({ area: "local" });
     
-    console.log("Initializing EntityDB with model: Xenova/all-MiniLM-L6-v2");
+    console.log("Initializing EntityDB");
     const vectorDb = new EntityDB({
       vectorPath: "aether_vector_db",
       model: "Xenova/all-MiniLM-L6-v2",
     }) as EntityDBType;
     
-    console.log("✅ Databases initialized. Model will download on first use.");
+    console.log("Databases initialized. Model will download on first use.");
     return { listStorage, vectorDb };
   } catch (error) {
-    console.error("❌ Failed to initialize:", error as Error);
+    console.error("  Failed to initialize:", error as Error);
     return { 
       listStorage: new Storage({ area: "local" }), 
       vectorDb: null 
@@ -78,16 +77,16 @@ chrome.runtime.onMessage.addListener((
         
         const currentPrompts = await listStorage.get<PromptObject[]>("prompts") || [];
         await listStorage.set("prompts", [...currentPrompts, newPromptObject]);
-        console.log("✅ Prompt saved to listStorage!");
+        console.log("  Prompt saved to listStorage!");
         
         if (vectorDb) {
           try {
             console.log("Vectorizing prompt...");
             await vectorDb.insert(newPromptObject);
-            console.log("✅ Prompt vectorized and saved!");
+            console.log("  Prompt vectorized and saved!");
             sendResponse({ status: "success" });
           } catch (vectorError) {
-            console.error("❌ Vector DB error:", vectorError as Error);
+            console.error("  Vector DB error:", vectorError as Error);
             sendResponse({ status: "saved without vectorization" });
           }
         } else {
@@ -95,7 +94,7 @@ chrome.runtime.onMessage.addListener((
           sendResponse({ status: "saved without vectorization" });
         }
       } catch (err) {
-        console.error("❌ Error:", err as Error);
+        console.error("  Error:", err as Error);
         sendResponse({ status: "error" });
       }
     })(); 
@@ -115,7 +114,7 @@ chrome.runtime.onMessage.addListener((
         
         sendResponse({ status: "success", prompts: last5Prompts });
       } catch (err) {
-        console.error("❌ Error fetching prompts:", err as Error);
+        console.error("  Error fetching prompts:", err as Error);
         sendResponse({ status: "error" });
       }
     })();

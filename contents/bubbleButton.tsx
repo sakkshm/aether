@@ -1,5 +1,3 @@
-// contents/bubbleButton.tsx
-
 import type { PlasmoCSConfig, PlasmoGetOverlayAnchor } from "plasmo"
 import cssText from "data-text:./bubbleButton.css"
 import icon from "data-base64:../assets/icon.png"
