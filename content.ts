@@ -1,4 +1,7 @@
-export const config = {
+// content.ts
+import type { PlasmoCSConfig } from "plasmo"
+
+export const config: PlasmoCSConfig = {
   matches: [
     "https://chatgpt.com/*",
     "https://claude.ai/*",
@@ -9,7 +12,18 @@ export const config = {
 
 console.log("Prompt saver content script loaded.");
 
-const siteSelectors = {
+// --- Type Definitions ---
+interface SiteConfig {
+  textarea: string;
+  button: string;
+}
+
+interface SiteSelectors {
+  [key: string]: SiteConfig;
+}
+
+// --- Constants ---
+const siteSelectors: SiteSelectors = {
   "chatgpt.com": {
     textarea: "#prompt-textarea",
     button: "#composer-submit-button",
@@ -28,7 +42,8 @@ const siteSelectors = {
   }
 };
 
-function getSiteConfig() {
+// --- Functions ---
+function getSiteConfig(): SiteConfig | null {
   const hostname = window.location.hostname;
   for (const key in siteSelectors) {
     if (hostname.includes(key)) {
@@ -38,8 +53,7 @@ function getSiteConfig() {
   return null;
 }
 
-function sendPromptMessage(promptText) {
-  // Check if we have a valid (non-invalidated) connection
+function sendPromptMessage(promptText: string): void {
   if (!chrome.runtime?.id) {
     console.warn("Extension context invalidated. Please refresh the page.");
     return;
@@ -54,9 +68,7 @@ function sendPromptMessage(promptText) {
         action: "savePrompt",
         prompt: promptText.trim(),
       },
-      (response) => {
-        // This check prevents the "Extension context invalidated" error
-        // from appearing in the console if the context is gone.
+      (response: { status: string }) => {
         if (chrome.runtime.lastError) {
           console.error(chrome.runtime.lastError.message);
         } else {
@@ -69,7 +81,19 @@ function sendPromptMessage(promptText) {
   }
 }
 
-function initPromptListeners() {
+// ✅ THE FIX IS HERE
+function getElementText(el: Element | null): string {
+  if (!el) return "";
+  
+  // Assert as HTMLElement to access innerText/textContent
+  const htmlEl = el as HTMLElement;
+
+  // Cast to HTMLTextAreaElement to check for .value
+  // This is safe because if it's not a textarea, .value will be undefined
+  return (htmlEl as HTMLTextAreaElement).value || htmlEl.innerText || htmlEl.textContent || "";
+}
+
+function initPromptListeners(): void {
   const config = getSiteConfig();
   if (!config) {
     console.log("No config for this site.");
@@ -80,8 +104,10 @@ function initPromptListeners() {
 
   // --- LISTENER 1: For Button Clicks ---
   console.log("Attaching DELEGATED mousedown listener to document.");
-  document.addEventListener("mousedown", (event) => {
-    const button = event.target.closest(config.button);
+  document.addEventListener("mousedown", (event: MouseEvent) => {
+    // ✅ THE FIX IS HERE
+    const target = event.target as HTMLElement; // Use HTMLElement
+    const button = target.closest(config.button);
 
     if (button) {
       console.log("Delegated mousedown detected on button!");
@@ -92,43 +118,39 @@ function initPromptListeners() {
         return;
       }
       
-      const promptText = textarea.value || textarea.innerText || textarea.textContent;
+      const promptText = getElementText(textarea);
       sendPromptMessage(promptText);
     }
   });
 
   // --- LISTENER 2: 'input' (for Caching) ---
-  // This fires every time the text in the box changes (typing, paste, etc.)
   console.log("Attaching DELEGATED input listener (CAPTURE phase) for caching.");
-  document.addEventListener("input", (event) => {
-    const textarea = event.target.closest(config.textarea);
+  document.addEventListener("input", (event: Event) => {
+    // ✅ THE FIX IS HERE
+    const target = event.target as HTMLElement; // Use HTMLElement
+    const textarea = target.closest(config.textarea);
     
-    // If the input event happened in our textarea, update the cache.
     if (textarea) {
-      lastKnownPromptText = textarea.value || textarea.innerText || textarea.textContent;
+      lastKnownPromptText = getElementText(textarea);
     }
   }, true); // Use capture phase
 
   
   // --- LISTENER 3: 'keydown' (for Sending) ---
-  // This listener fires *before* the 'Enter' key is released.
   console.log("Attaching DELEGATED keydown listener (CAPTURE phase) for sending.");
-  document.addEventListener("keydown", (event) => {
-    const textarea = event.target.closest(config.textarea);
+  document.addEventListener("keydown", (event: KeyboardEvent) => {
+    // ✅ THE FIX IS HERE
+    const target = event.target as HTMLElement; // Use HTMLElement
+    const textarea = target.closest(config.textarea);
 
-    // Check if the 'Enter' key was PRESSED in our textarea
     if (textarea && event.key === 'Enter' && !event.shiftKey) {
       console.log("'Enter' keydown detected! Sending last known prompt.");
       
-      // Send the text we saved during the 'input' event
       sendPromptMessage(lastKnownPromptText);
-      
-      // Clear the cache
       lastKnownPromptText = ""; 
     }
   }, true); // Use capture phase
 }
 
-// Start the whole process
+// --- Start ---
 initPromptListeners();
-
