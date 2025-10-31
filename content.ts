@@ -2,12 +2,15 @@
 import type { PlasmoCSConfig } from "plasmo"
 
 export const config: PlasmoCSConfig = {
-  matches: [
-    "https://chatgpt.com/*",
-    "https://claude.ai/*",
-    "https://gemini.google.com/*",
-    "https://grok.com/*"
-  ]
+	matches: [
+		"https://chatgpt.com/*",
+		"https://claude.ai/*",
+		"https://gemini.google.com/*",
+		"https://grok.com/*",
+		"https://perplexity.ai/*",
+		"https://www.perplexity.ai/*"
+	],
+	run_at: "document_idle"
 }
 
 console.log("[Aether] Prompt saver content script loaded.");
@@ -24,53 +27,57 @@ interface SiteSelectors {
 
 // --- Constants ---
 const siteSelectors: SiteSelectors = {
-  "chatgpt.com": {
-    textarea: "#prompt-textarea",
-    button: "#composer-submit-button",
-  },
-  "claude.ai": {
-    textarea: "div[data-testid='chat-input']",
-    button: "button[aria-label='Send message']",
-  },
-  "gemini.google.com": {
-    textarea: "div[contenteditable='true'][aria-label='Enter a prompt here']",
-    button: "button.send-button",
-  },
-  "grok.com": {
-    textarea: "div[contenteditable='true']",
-    button: "button[aria-label='Submit']",
-  }
-};
+	"chatgpt.com": {
+		textarea: "#prompt-textarea",
+		button: "#composer-submit-button"
+	},
+	"claude.ai": {
+		textarea: "div[data-testid='chat-input']",
+		button: "button[aria-label='Send message']"
+	},
+	"gemini.google.com": {
+		textarea: "div[contenteditable='true'][aria-label='Enter a prompt here']",
+		button: "button.send-button"
+	},
+	"grok.com": {
+		textarea: "div[contenteditable='true']",
+		button: "button[aria-label='Submit']"
+	},
+	"perplexity.ai": {
+		textarea: "div[contenteditable='true']#ask-input",
+		button: "button[data-testid='submit-button'], button[aria-label='Voice mode']"
+	}
+}
 
 // --- Functions ---
 function getSiteConfig(): SiteConfig | null {
-  const hostname = window.location.hostname;
-  for (const key in siteSelectors) {
-    if (hostname.includes(key)) {
-      return siteSelectors[key];
-    }
-  }
-  return null;
+	const hostname = window.location.hostname
+	for (const key in siteSelectors) {
+		if (hostname.includes(key)) {
+			return siteSelectors[key]
+		}
+	}
+	return null
 }
 
 function sendPromptMessage(promptText: string): void {
-  if (!chrome.runtime?.id) {
-    console.warn("[Aether] Extension context invalidated. Please refresh the page.");
-    return;
-  }
+	if (!chrome.runtime?.id) {
+		console.warn("Aether: Extension context invalidated. Please refresh the page.")
+		return
+	}
 
   console.log("[Aether] Raw prompt text read:", JSON.stringify(promptText));
 
-  if (promptText && promptText.trim()) {
-    console.log("[Aether] Sending prompt to background:", promptText.trim());
-    chrome.runtime.sendMessage(
-      {
-        action: "savePrompt",
-        prompt: promptText.trim(),
-      },
+  const trimmedPrompt = promptText.trim()
+	if (trimmedPrompt) {
+		chrome.runtime.sendMessage(
+			{
+				action: "savePrompt",
+				prompt: trimmedPrompt
+			},
       (response: { status: string }) => {
         if (chrome.runtime.lastError) {
-          console.error(chrome.runtime.lastError.message);
+          console.error(`Aether: ${chrome.runtime.lastError.message}`);
         } else {
           console.log(response.status);
         }
@@ -115,7 +122,8 @@ function initPromptListeners(): void {
       const promptText = getElementText(textarea);
       sendPromptMessage(promptText);
     }
-  });
+  }, true
+);
 
   // --- LISTENER 2: 'input' (for Caching) ---
   console.log("[Aether] Attaching DELEGATED input listener (CAPTURE phase) for caching.");
@@ -138,7 +146,13 @@ function initPromptListeners(): void {
     if (textarea && event.key === 'Enter' && !event.shiftKey) {
       console.log("[Aether] 'Enter' keydown detected! Sending last known prompt.");
 
-      sendPromptMessage(lastKnownPromptText);
+      let promptToSend = lastKnownPromptText
+
+      if (window.location.hostname.includes("perplexity.ai")) {
+					promptToSend = getElementText(textarea)
+				}
+
+      sendPromptMessage(promptToSend);
       lastKnownPromptText = "";
     }
   }, true); // Use capture phase
