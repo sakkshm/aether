@@ -2,9 +2,9 @@
   position: absolute;
   bottom: 0.5px;
   right: 12px;
-  width: 24px;
-  height: 24px;
-  background-color: #6c5ce7;
+  width: 52px;
+  height: 52px;
+  background-color: #fff;
   border-radius: 50%;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   display: flex;
@@ -17,7 +17,7 @@
 
 .aether-bubble:hover {
   transform: scale(1.1);
-  background-color: #825ce7;
+  background-color: #fff;
 }
 
 .aether-bubble img {

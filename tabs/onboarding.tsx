@@ -233,7 +233,11 @@ export default function OnboardingPage({ onClose }) {
                     background: '#22c55e',
                     color: "#fff"
                   }}>
-                  <CheckCircle size={20} /> Launch Aether
+                    <a href="https://gemini.google.com" style={{ textDecoration: 'none', color: 'inherit' }}>
+                    <div style={{ display: "flex", justifyContent: "center", alignItems: "center"}}>
+                        <CheckCircle size={20} style={{marginRight: "10px"}} /> Launch Aether
+                    </div>
+                    </a>
                 </button>
               </div>
             </>
@@ -278,8 +282,8 @@ export default function OnboardingPage({ onClose }) {
           src={logo}
           alt="Aether Logo"
           style={{
-            width: 72,
-            height: 72,
+            width: 60,
+            height: 60,
             filter: "drop-shadow(0 3px 8px rgba(37,99,235,0.5))"
           }}
         />
