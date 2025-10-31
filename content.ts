@@ -37,7 +37,7 @@ const siteSelectors: SiteSelectors = {
     button: "button.send-button",
   },
   "grok.com": {
-    textarea: "textarea[aria-label='Ask Grok anything']",
+    textarea: "div[contenteditable='true']", 
     button: "button[aria-label='Submit']",
   }
 };
@@ -81,15 +81,10 @@ function sendPromptMessage(promptText: string): void {
   }
 }
 
-// ✅ THE FIX IS HERE
+// Helper to get text from different element types
 function getElementText(el: Element | null): string {
   if (!el) return "";
-  
-  // Assert as HTMLElement to access innerText/textContent
   const htmlEl = el as HTMLElement;
-
-  // Cast to HTMLTextAreaElement to check for .value
-  // This is safe because if it's not a textarea, .value will be undefined
   return (htmlEl as HTMLTextAreaElement).value || htmlEl.innerText || htmlEl.textContent || "";
 }
 
@@ -105,8 +100,7 @@ function initPromptListeners(): void {
   // --- LISTENER 1: For Button Clicks ---
   console.log("Attaching DELEGATED mousedown listener to document.");
   document.addEventListener("mousedown", (event: MouseEvent) => {
-    // ✅ THE FIX IS HERE
-    const target = event.target as HTMLElement; // Use HTMLElement
+    const target = event.target as HTMLElement;
     const button = target.closest(config.button);
 
     if (button) {
@@ -126,8 +120,7 @@ function initPromptListeners(): void {
   // --- LISTENER 2: 'input' (for Caching) ---
   console.log("Attaching DELEGATED input listener (CAPTURE phase) for caching.");
   document.addEventListener("input", (event: Event) => {
-    // ✅ THE FIX IS HERE
-    const target = event.target as HTMLElement; // Use HTMLElement
+    const target = event.target as HTMLElement;
     const textarea = target.closest(config.textarea);
     
     if (textarea) {
@@ -139,8 +132,7 @@ function initPromptListeners(): void {
   // --- LISTENER 3: 'keydown' (for Sending) ---
   console.log("Attaching DELEGATED keydown listener (CAPTURE phase) for sending.");
   document.addEventListener("keydown", (event: KeyboardEvent) => {
-    // ✅ THE FIX IS HERE
-    const target = event.target as HTMLElement; // Use HTMLElement
+    const target = event.target as HTMLElement;
     const textarea = target.closest(config.textarea);
 
     if (textarea && event.key === 'Enter' && !event.shiftKey) {

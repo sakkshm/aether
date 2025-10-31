@@ -1,5 +1,5 @@
 // background.ts
-import "./setup-env.ts" // Import the setup file first
+import "./setup-env.ts"
 import { Storage } from "@plasmohq/storage"
 import type { EntityDB as EntityDBType } from "@babycommando/entity-db"
 
@@ -17,17 +17,24 @@ interface DbHandles {
   vectorDb: EntityDBType | null;
 }
 
+// New message types for the union
 interface SavePromptMessage {
   action: "savePrompt";
   prompt: string;
 }
 
-// --- Database Initialization ---
+interface GetPromptsMessage {
+  action: "getLast5Prompts";
+}
+
+// A "union type" for all possible messages
+type RuntimeMessage = SavePromptMessage | GetPromptsMessage;
+
+// --- Database Initialization  ---
 const dbPromise: Promise<DbHandles> = (async () => {
   console.log("Dynamically importing EntityDB...");
   
   try {
-    // Dynamically import the class
     const { EntityDB } = await import("@babycommando/entity-db");
     console.log("EntityDB module loaded successfully.");
     
@@ -37,7 +44,7 @@ const dbPromise: Promise<DbHandles> = (async () => {
     const vectorDb = new EntityDB({
       vectorPath: "aether_vector_db",
       model: "Xenova/all-MiniLM-L6-v2",
-    }) as EntityDBType; // Cast to the imported type
+    }) as EntityDBType;
     
     console.log("✅ Databases initialized. Model will download on first use.");
     return { listStorage, vectorDb };
@@ -52,10 +59,12 @@ const dbPromise: Promise<DbHandles> = (async () => {
 
 // --- Message Listener ---
 chrome.runtime.onMessage.addListener((
-  message: SavePromptMessage, 
+  message: RuntimeMessage,
   sender: chrome.runtime.MessageSender, 
   sendResponse: (response?: any) => void
 ) => {
+  
+  // --- Handle Save Prompt action ---
   if (message.action === "savePrompt") {
     console.log("Prompt received:", message.prompt);
     (async () => {
@@ -67,12 +76,10 @@ chrome.runtime.onMessage.addListener((
           origin: sender.tab?.url || "unknown"
         }
         
-        // Save to list storage
         const currentPrompts = await listStorage.get<PromptObject[]>("prompts") || [];
         await listStorage.set("prompts", [...currentPrompts, newPromptObject]);
         console.log("✅ Prompt saved to listStorage!");
         
-        // Try to save to vector DB
         if (vectorDb) {
           try {
             console.log("Vectorizing prompt...");
@@ -94,4 +101,25 @@ chrome.runtime.onMessage.addListener((
     })(); 
     return true; // Indicates an asynchronous response
   }
+  
+  // --- Handle Get Last 5 Prompts action ---
+  if (message.action === "getLast5Prompts") {
+    console.log("Get last 5 prompts request received");
+    (async () => {
+      try {
+        const { listStorage } = await dbPromise;
+        const allPrompts = await listStorage.get<PromptObject[]>("prompts") || [];
+        
+        // Get the last 5 prompts (newest first)
+        const last5Prompts = allPrompts.slice(-5).reverse();
+        
+        sendResponse({ status: "success", prompts: last5Prompts });
+      } catch (err) {
+        console.error("❌ Error fetching prompts:", err as Error);
+        sendResponse({ status: "error" });
+      }
+    })();
+    return true; // Indicates an asynchronous response
+  }
+
 });
