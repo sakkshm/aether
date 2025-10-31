@@ -2,486 +2,535 @@ import "./setup-env.ts"
 import { Storage } from "@plasmohq/storage"
 import type { EntityDB as EntityDBType } from "@babycommando/entity-db"
 import {
-  createSummarizer,
-  summarizePrompt,
-  checkAvailabilityStatus,
-  downloadModel,
-  AvailabilityStatus
+	createSummarizer,
+	summarizePrompt,
+	checkAvailabilityStatus,
+	downloadModel,
+	AvailabilityStatus
 } from "./utils/summarizer"
 
 console.log("[Aether] Background script started.")
 
 // --- Type Definitions ---
 interface PromptObject {
-  text: string
-  timestamp: string
-  origin: string
+	text: string
+	timestamp: string
+	origin: string
 }
 
 interface MemoryObject {
-  id?: string
-  type: string
-  prompt: string
-  memory: string
-  tags: string[]
-  timestamp: string
-  origin: string
+	id?: string | number
+	type: string
+	prompt: string
+	memory: string
+	tags: string[]
+	timestamp: string
+	origin: string
 }
 
 interface DbHandles {
-  listStorage: Storage
-  vectorDb: EntityDBType | null
+	listStorage: Storage
+	vectorDb: EntityDBType | null
 }
 
 // --- Message Types ---
 interface SavePromptMessage {
-  action: "savePrompt"
-  prompt: string
+	action: "savePrompt"
+	prompt: string
 }
-
 interface GetPromptsMessage {
-  action: "getLast5Prompts"
+	action: "getLast5Prompts"
 }
-
 interface GetTopKMemoriesMessage {
-  action: "getTopKMemories"
-  query?: string
-  k?: number
+	action: "getTopKMemories"
+	query?: string
+	k?: number
 }
-
+interface DeleteMemoryMessage {
+	action: "deleteMemory"
+	memory: MemoryObject
+}
 type RuntimeMessage =
-  | SavePromptMessage
-  | GetPromptsMessage
-  | GetTopKMemoriesMessage
+	| SavePromptMessage
+	| GetPromptsMessage
+	| GetTopKMemoriesMessage
+	| DeleteMemoryMessage
 
 // --- Configuration ---
-const DUPLICATE_THRESHOLD = 0.75 // similarity threshold to treat as duplicate
+const DUPLICATE_THRESHOLD = 0.75
 
 // --- Database Initialization ---
 const dbPromise: Promise<DbHandles> = (async () => {
-  console.log("[Aether] Dynamically importing EntityDB...")
+	console.log("[Aether] Dynamically importing EntityDB...")
+	try {
+		const { EntityDB } = await import("@babycommando/entity-db")
+		console.log("[Aether] EntityDB module loaded successfully.")
 
-  try {
-    const { EntityDB } = await import("@babycommando/entity-db")
-    console.log("[Aether] EntityDB module loaded successfully.")
+		const listStorage = new Storage({ area: "local" })
 
-    const listStorage = new Storage({ area: "local" })
+		console.log("[Aether] Initializing EntityDB")
+		const vectorDb = new EntityDB({
+			vectorPath: "aether_vector_db",
+			model: "Xenova/all-MiniLM-L6-v2"
+		}) as EntityDBType
 
-    console.log("[Aether] Initializing EntityDB")
-    const vectorDb = new EntityDB({
-      vectorPath: "aether_vector_db",
-      model: "Xenova/all-MiniLM-L6-v2"
-    }) as EntityDBType
-
-    console.log("[Aether] Databases initialized. Model will download on first use.")
-    return { listStorage, vectorDb }
-  } catch (error) {
-    console.error("[Aether] Failed to initialize EntityDB:", error)
-    return {
-      listStorage: new Storage({ area: "local" }),
-      vectorDb: null
-    }
-  }
+		console.log("[Aether] Databases initialized. Model will download on first use.")
+		return { listStorage, vectorDb }
+	} catch (error) {
+		console.error("[Aether] Failed to initialize EntityDB:", error)
+		return {
+			listStorage: new Storage({ area: "local" }),
+			vectorDb: null
+		}
+	}
 })()
 
 // --- Summary API Initialization ---
 const summaryAPIPromise: Promise<{ summarizer: any | null }> = (async () => {
-  console.log("[Aether] Initializing Summary API...")
+	console.log("[Aether] Initializing Summary API...")
+	try {
+		const status = await checkAvailabilityStatus()
+		console.log("[Aether] Model availability:", status)
 
-  try {
-    const status = await checkAvailabilityStatus()
-    console.log("[Aether] Model availability:", status)
+		if (status === AvailabilityStatus.DOWNLOADABLE) {
+			console.log("[Aether] Downloading model...")
+			await downloadModel((progress) =>
+				console.log(
+					"[Aether] Download progress:",
+					(progress * 100).toFixed(2) + "%"
+				)
+			)
+		}
 
-    if (status === AvailabilityStatus.DOWNLOADABLE) {
-      console.log("[Aether] Downloading model...")
-      await downloadModel((progress) =>
-        console.log("[Aether] Download progress:", (progress * 100).toFixed(2) + "%")
-      )
-    }
-
-    const summarizer = await createSummarizer()
-    console.log("[Aether] Summarizer API Initialized.")
-    return { summarizer }
-  } catch (error) {
-    console.error("[Aether] Failed to initialize Summarizer:", error)
-    return { summarizer: null }
-  }
+		const summarizer = await createSummarizer()
+		console.log("[Aether] Summarizer API Initialized.")
+		return { summarizer }
+	} catch (error) {
+		console.error("[Aether] Failed to initialize Summarizer:", error)
+		return { summarizer: null }
+	}
 })()
 
-// --- Utility: parse results from EntityDB.query() safely ---
+// --- Utility Functions ---
 function parseQueryResults(raw: any): any[] {
-  if (!raw) return []
-  if (Array.isArray(raw)) return raw
-  if (Array.isArray(raw.results)) return raw.results
-  if (Array.isArray(raw.data)) return raw.data
-  if (Array.isArray(raw.items)) return raw.items
-  return []
+	if (!raw) return []
+	if (Array.isArray(raw)) return raw
+	if (Array.isArray(raw.results)) return raw.results
+	if (Array.isArray(raw.data)) return raw.data
+	if (Array.isArray(raw.items)) return raw.items
+	return []
 }
-
-// --- Utility: extract text from result entry defensively ---
 function getResultText(entry: any): string | undefined {
-  if (!entry) return undefined
-  if (typeof entry.text === "string") return entry.text
-  if (typeof entry.payload === "string") return entry.payload
-  if (typeof entry.metadata?.text === "string") return entry.metadata.text
-  if (typeof entry.metadata?.memory === "string") return entry.metadata.memory
-  return undefined
+	if (!entry) return undefined
+	if (typeof entry.text === "string") return entry.text
+	if (typeof entry.payload === "string") return entry.payload
+	if (typeof entry.metadata?.text === "string") return entry.metadata.text
+	if (typeof entry.metadata?.memory === "string") return entry.metadata.memory
+	return undefined
 }
-
-// --- Helper: Find top similar result above threshold ---
 async function findTopSimilar(
-  vectorDb: EntityDBType,
-  queryText: string,
-  threshold = DUPLICATE_THRESHOLD
+	vectorDb: EntityDBType,
+	queryText: string,
+	threshold = DUPLICATE_THRESHOLD
 ): Promise<{
-  id: string | number | null
-  score: number
-  text?: string
-  metadata?: any
+	id: string | number | null
+	score: number
+	text?: string
+	metadata?: any
 } | null> {
-  try {
-    const raw = await vectorDb.query(queryText)
-    const parsed = parseQueryResults(raw)
-    if (!Array.isArray(parsed) || parsed.length === 0) return null
+	try {
+		const raw = await vectorDb.query(queryText)
+		const parsed = parseQueryResults(raw)
+		if (!Array.isArray(parsed) || parsed.length === 0) return null
 
-    // sort by score/similarity descending to be safe
-    parsed.sort((a, b) => (b.score ?? b.similarity ?? b.cosine ?? 0) - (a.score ?? a.similarity ?? a.cosine ?? 0))
+		parsed.sort(
+			(a, b) =>
+				(b.score ?? b.similarity ?? b.cosine ?? 0) -
+				(a.score ?? a.similarity ?? a.cosine ?? 0)
+		)
 
-    // find first entry with score >= threshold (not only parsed[0])
-    for (const entry of parsed) {
-      const score = entry.score ?? entry.similarity ?? entry.cosine ?? 0
-      if (typeof score === "number" && score >= threshold) {
-        const id = entry.id ?? entry._id ?? entry.key ?? null
-        const text = getResultText(entry) ?? entry.metadata?.memory ?? entry.metadata?.text
-        return { id, score, text, metadata: entry.metadata ?? {} }
-      }
-    }
+		for (const entry of parsed) {
+			const score = entry.score ?? entry.similarity ?? entry.cosine ?? 0
+			if (typeof score === "number" && score >= threshold) {
+				const id = entry.id ?? entry._id ?? entry.key ?? null
+				const text =
+					getResultText(entry) ??
+					entry.metadata?.memory ??
+					entry.metadata?.text
+				return { id, score, text, metadata: entry.metadata ?? {} }
+			}
+		}
 
-    return null
-  } catch (err) {
-    console.warn("[Aether] findTopSimilar: query failed", err)
-    return null
-  }
+		return null
+	} catch (err) {
+		console.warn("[Aether] findTopSimilar: query failed", err)
+		return null
+	}
 }
-
-// --- Helper: delete vector entry by id or by query text (best-effort) ---
-async function safeDeleteVector(vectorDb: EntityDBType, idOrText: string | number) {
-  try {
-    // If it's an id (string/number), attempt delete directly
-    if (typeof idOrText === "string" || typeof idOrText === "number") {
-      try {
-        await vectorDb.delete(idOrText)
-        console.log("[Aether] safeDeleteVector: deleted by id/text:", idOrText)
-        return true
-      } catch (directErr) {
-        console.warn("[Aether] safeDeleteVector: direct delete failed for", idOrText, directErr)
-        // fallthrough to query deletion
-      }
-    }
-
-    // If direct delete failed or idOrText is not an id, try query by text to discover matching ids and delete them
-    if (typeof idOrText === "string") {
-      try {
-        const raw = await vectorDb.query(idOrText)
-        const parsed = parseQueryResults(raw)
-        if (!Array.isArray(parsed) || parsed.length === 0) {
-          console.warn("[Aether] safeDeleteVector: query returned no results for text:", idOrText)
-          return false
-        }
-
-        for (const p of parsed) {
-          const pid = p.id ?? p._id ?? p.key ?? null
-          if (pid != null) {
-            try {
-              await vectorDb.delete(pid)
-              console.log("[Aether] safeDeleteVector: deleted discovered id", pid)
-            } catch (e) {
-              console.warn("[Aether] safeDeleteVector: delete failed for discovered id", pid, e)
-            }
-          } else {
-            console.warn("[Aether] safeDeleteVector: discovered entry without deletable id", p)
-          }
-        }
-        return true
-      } catch (qErr) {
-        console.warn("[Aether] safeDeleteVector: query failed", qErr)
-        return false
-      }
-    }
-
-    return false
-  } catch (err) {
-    console.warn("[Aether] safeDeleteVector: unexpected error", err)
-    return false
-  }
-}
-
-// --- Helper: normalize text for comparisons ---
 function normalize(s?: string) {
-  if (!s) return ""
-  return s.trim().toLowerCase()
+	if (!s) return ""
+	return s.trim().toLowerCase()
 }
+// --- END Utility Functions ---
 
-// --- Helper: detect tag overlap ---
-function tagsOverlap(a: string[], b: string[]) {
-  const set = new Set(a.map((t) => normalize(t)))
-  return b.some((t) => set.has(normalize(t)))
-}
+/**
+ * [MODIFIED HELPER]
+ * Cleanly deletes a vector by its key, coercing numeric strings to numbers.
+ */
+async function deleteVector(vectorDb: EntityDBType, id: string | number) {
+	if (id == null) {
+		console.warn("[Aether] deleteVector: called with null or undefined id.")
+		return false
+	}
 
-// --- Helper: simple sentiment heuristics (optional) ---
-function simpleSentiment(text: string) {
-  const t = text.toLowerCase()
-  if (/\b(dislike|hate|don't like|dont like|do not like|not a fan|detest|loathe)\b/.test(t)) return "negative"
-  if (/\b(like|love|enjoy|prefer|adore|fan of)\b/.test(t)) return "positive"
-  return "neutral"
+	const key = typeof id === "string" && /^\d+$/.test(id) ? Number(id) : id
+
+	try {
+		console.log(
+			`[Aether] Attempting to delete vector with key: ${key} (type: ${typeof key})`
+		)
+		await vectorDb.delete(key as any)
+		console.log(`[Aether] Successfully called delete for key: ${key}`)
+		return true
+	} catch (err) {
+		console.error(`[Aether] Error during vectorDb.delete(${key}):`, err)
+		return false
+	}
 }
 
 // --- Main Message Listener ---
 chrome.runtime.onMessage.addListener((
-  message: RuntimeMessage,
-  sender: chrome.runtime.MessageSender,
-  sendResponse: (response?: any) => void
+	message: RuntimeMessage,
+	sender: chrome.runtime.MessageSender,
+	sendResponse: (response?: any) => void
 ) => {
-  // --- Handle Save Prompt ---
-  if (message.action === "savePrompt") {
-    console.log("[Aether] Prompt received:", message.prompt)
+	// --- Handle Save Prompt ---
+	if (message.action === "savePrompt") {
+		console.log("[Aether] Prompt received:", message.prompt)
+		let promptText = message.prompt
+		if (
+			typeof promptText === "string" &&
+			promptText.includes("!-----------------------CONTEXT-----------------------!")
+		) {
+			promptText =
+				promptText.split("!-----------------------CONTEXT-----------------------!")[0]
+		}
+		console.log("[Aether] Cleaned Prompt:", promptText)
 
-    let promptText = message.prompt
-    if (typeof promptText === "string" && promptText.includes("!-----------------------CONTEXT-----------------------!")) {
-      promptText = promptText.split("!-----------------------CONTEXT-----------------------!")[0]
-    }
+		;(async () => {
+			try {
+				const { listStorage, vectorDb } = await dbPromise
+				const { summarizer } = await summaryAPIPromise
 
-    console.log("[Aether] Cleaned Prompt:", promptText)
+				const origin = sender.tab?.url || "unknown"
+				const newPromptObject: PromptObject = {
+					text: promptText,
+					timestamp: new Date().toISOString(),
+					origin
+				}
 
-    ;(async () => {
-      try {
-        const { listStorage, vectorDb } = await dbPromise
-        const { summarizer } = await summaryAPIPromise
+				// Summarize / extract memories
+				console.log("[Aether] Sending to summarizer...")
+				const rawMemories = summarizer
+					? await summarizePrompt(newPromptObject.text, summarizer)
+					: []
+				console.log("[Aether] Extracted memories:", rawMemories)
 
-        const origin = sender.tab?.url || "unknown"
-        const newPromptObject: PromptObject = {
-          text: promptText,
-          timestamp: new Date().toISOString(),
-          origin
-        }
+				const memoryObjects: MemoryObject[] = (
+					Array.isArray(rawMemories) ? rawMemories : []
+				)
+					.map((m: any) => {
+						if (typeof m === "string") {
+							try {
+								return JSON.parse(m)
+							} catch (e) {
+								console.warn(
+									"[Aether] Failed to parse string-JSON from summarizer:",
+									m
+								)
+								return null 
+							}
+						}
+						if (typeof m === "object" && m !== null && m.statement) {
+							return m 
+						}
+						console.warn("[Aether] Discarding invalid memory item:", m)
+						return null 
+					})
+					.filter((m) => m !== null)
+					.map((m: any) => ({
+						
+						type: m.type,
+						prompt: newPromptObject.text,
+						memory: m.statement,
+						tags: Array.isArray(m.tags) ? m.tags : [],
+						timestamp: newPromptObject.timestamp,
+						origin: newPromptObject.origin
+					}))
+				// --- END: ROBUST PARSING FIX ---
 
-        // Summarize / extract memories
-        console.log("[Aether] Sending to summarizer...")
-        const rawMemories = summarizer
-          ? await summarizePrompt(newPromptObject.text, summarizer)
-          : []
+				const currentPrompts: PromptObject[] =
+					(await listStorage.get<PromptObject[]>("prompts")) || []
+				await listStorage.set("prompts", [...currentPrompts, newPromptObject])
+				console.log("[Aether] Prompt saved to listStorage.")
 
-        console.log("[Aether] Extracted memories:", rawMemories)
+				const currentMemories: MemoryObject[] =
+					(await listStorage.get<MemoryObject[]>("memories")) || []
 
-        const memoryObjects: MemoryObject[] = (Array.isArray(rawMemories) ? rawMemories : []).map((m: any) => ({
-          type: m.type,
-          prompt: newPromptObject.text,
-          memory: m.statement,
-          tags: Array.isArray(m.tags) ? m.tags : [],
-          timestamp: newPromptObject.timestamp,
-          origin: newPromptObject.origin
-        }))
+				if (!vectorDb) {
+					console.warn(
+						"[Aether] Vector DB not initialized. Storing memories locally only."
+					)
+					const merged = [...currentMemories, ...memoryObjects]
+					await listStorage.set("memories", merged)
+					sendResponse({
+						status: "saved_without_vectorization",
+						added: memoryObjects.length
+					})
+					return
+				}
 
-        const currentPrompts: PromptObject[] = (await listStorage.get<PromptObject[]>("prompts")) || []
-        await listStorage.set("prompts", [...currentPrompts, newPromptObject])
-        console.log("[Aether] Prompt saved to listStorage.")
+				let updatedMemories = [...currentMemories]
 
-        const currentMemories: MemoryObject[] = (await listStorage.get<MemoryObject[]>("memories")) || []
+				// Process each new memory:
+				for (const mem of memoryObjects) {
 
-        if (!vectorDb) {
-          console.warn("[Aether] Vector DB not initialized. Storing memories locally only.")
-          const merged = [...currentMemories, ...memoryObjects]
-          await listStorage.set("memories", merged)
-          sendResponse({ status: "saved_without_vectorization", added: memoryObjects.length })
-          return
-        }
+          if (!mem.memory) {
+						console.warn("[Aether] Skipping memory with no statement text.")
+						continue
+					}
+					
+					const normalizedNewText = normalize(mem.memory)
+					let conflictText = ""
+					if (normalizedNewText.startsWith("user dislikes ")) {
+						conflictText = normalizedNewText.replace("user dislikes ", "user enjoys ")
+					} else if (normalizedNewText.startsWith("user enjoys ")) {
+						conflictText = normalizedNewText.replace("user enjoys ", "user dislikes ")
+					} else if (normalizedNewText.startsWith("user prefers ")) {
+						conflictText = normalizedNewText.replace("user prefers ", "user dislikes ")
+					} else if (normalizedNewText.startsWith("user likes ")) {
+						conflictText = normalizedNewText.replace("user likes ", "user dislikes ")
+					}
 
-        let updatedMemories = [...currentMemories]
+					const localExactIndex = updatedMemories.findIndex(
+						(m) => normalize(m.memory) === normalizedNewText
+					)
+					const localConflictIndex = conflictText
+						? updatedMemories.findIndex(
+								(m) => normalize(m.memory) === conflictText
+						  )
+						: -1
 
-        // Process each new memory:
-        for (const mem of memoryObjects) {
-          try {
-            // 1) contradiction / exact conflict detection in local store (prefer this to ensure overwrite semantics)
-            // Find any local memory that is:
-            //  - same subject (by exact normalized memory text), OR
-            //  - tags overlap and type differs (preference vs dislike)
-            const normalizedNewText = normalize(mem.memory)
-            const localExactIndex = updatedMemories.findIndex((m) => normalize(m.memory) === normalizedNewText)
-            const localConflictIndex = updatedMemories.findIndex((m) =>
-              m.type !== mem.type && (tagsOverlap(m.tags, mem.tags) || normalize(m.prompt) === normalize(mem.prompt))
-            )
+					let oldMemory: MemoryObject | null = null
 
-            let removedLocal: MemoryObject | null = null
+					if (localExactIndex !== -1) {
+						oldMemory = updatedMemories.splice(localExactIndex, 1)[0]
+						console.log("[Aether] Found exact local duplicate:", oldMemory?.memory)
+					} else if (localConflictIndex !== -1) {
+						oldMemory = updatedMemories.splice(localConflictIndex, 1)[0]
+						console.log(
+							"[Aether] Found conflicting local memory (enjoys/dislikes):",
+							oldMemory?.memory
+						)
+					} else {
+						// This query will no longer crash because the DB is clean
+						const similar = await findTopSimilar(
+							vectorDb,
+							mem.memory,
+							DUPLICATE_THRESHOLD
+						)
+						if (similar && similar.id) {
+							const oldMemIndex = updatedMemories.findIndex(
+								(m) => String(m.id) === String(similar.id)
+							)
+							if (oldMemIndex !== -1) {
+								oldMemory = updatedMemories.splice(oldMemIndex, 1)[0]
+								console.log(
+									"[Aether] Found similar vector, removing local mem:",
+									oldMemory?.memory
+								)
+							}
+						}
+					}
 
-            if (localExactIndex !== -1) {
-              // exact textual duplicate exists — remove it (we'll replace)
-              removedLocal = updatedMemories.splice(localExactIndex, 1)[0] ?? null
-              console.log("[Aether] Removed exact local duplicate:", removedLocal?.memory)
-              // also attempt to delete matching vector by id or text
-              if (removedLocal?.id) {
-                const deleted = await safeDeleteVector(vectorDb, removedLocal.id)
-                console.log("[Aether] safeDeleteVector result for removedLocal.id:", deleted)
-              } else {
-                const deleted = await safeDeleteVector(vectorDb, removedLocal?.memory || "")
-                console.log("[Aether] safeDeleteVector result for removedLocal.memory:", deleted)
-              }
-            } else if (localConflictIndex !== -1) {
-              // Found a contradictory memory (e.g., like vs dislike on same tags)
-              removedLocal = updatedMemories.splice(localConflictIndex, 1)[0] ?? null
-              console.log("[Aether] Removed conflicting local memory (type mismatch):", removedLocal?.memory, "->", removedLocal?.type)
-              if (removedLocal?.id) {
-                const deleted = await safeDeleteVector(vectorDb, removedLocal.id)
-                console.log("[Aether] safeDeleteVector result for removedLocal.id:", deleted)
-              } else {
-                const deleted = await safeDeleteVector(vectorDb, removedLocal?.memory || "")
-                console.log("[Aether] safeDeleteVector result for removedLocal.memory:", deleted)
-              }
-            } else {
-              // No clear local conflict; fall back to vector-based similarity check
-              const similar = await findTopSimilar(vectorDb, mem.memory, DUPLICATE_THRESHOLD)
-              if (similar && similar.id != null) {
-                // check whether similar corresponds to an existing local entry by id or by similar text
-                // remove matching local entries by id or text
-                updatedMemories = updatedMemories.filter((existing) => {
-                  if (existing.id && String(existing.id) === String(similar.id)) return false
-                  if (similar.text && normalize(existing.memory) === normalize(similar.text)) return false
-                  if (similar.metadata?.sourcePrompt && existing.prompt === similar.metadata.sourcePrompt) return false
-                  return true
-                })
+					// --- Step 1: Delete the old vector (if one was found) ---
+					if (oldMemory && oldMemory.id) {
+						await deleteVector(vectorDb, oldMemory.id)
+					}
 
-                // delete the vector itself (use safeDeleteVector to be robust)
-                try {
-                  const deleted = await safeDeleteVector(vectorDb, similar.id)
-                  console.log(`[Aether] Deleted similar vector id=${similar.id} result=${deleted}`)
-                } catch (e) {
-                  console.warn("[Aether] Failed to delete similar vector id:", similar.id, e)
-                }
-              }
-            }
+					// --- Step 2: Insert the new vector ---
+					const inserted = await vectorDb.insert({
+						text: mem.memory,
+						metadata: {
+							type: mem.type,
+							tags: mem.tags,
+							timestamp: mem.timestamp,
+							origin: mem.origin,
+							sourcePrompt: mem.prompt
+						}
+					})
 
-            // After removals, insert the new memory vector
-            const inserted = await vectorDb.insert({
-              text: mem.memory,
-              metadata: {
-                type: mem.type,
-                tags: mem.tags,
-                timestamp: mem.timestamp,
-                origin: mem.origin,
-                sourcePrompt: mem.prompt
-              }
-            })
+					// --- Step 3: Save the NEW vector key (PRESERVING TYPE) ---
+					if (typeof inserted === "string" || typeof inserted === "number") {
+						mem.id = inserted
+					} else {
+						mem.id =
+							(inserted as any)?.id ??
+							(inserted as any)?._id ??
+							(inserted as any)?.key ??
+							crypto.randomUUID()
+					}
+					console.log(
+						`[Aether] Inserted new memory '${
+							mem.memory
+						}' with new id: ${mem.id} (type: ${typeof mem.id})`
+					)
 
-            // record the actual key returned by EntityDB.insert()
-            if (typeof inserted === "string" || typeof inserted === "number") {
-              mem.id = String(inserted)
-            } else {
-              mem.id = inserted?.id ?? inserted?._id ?? inserted?.key ?? crypto.randomUUID()
-            }
+					// --- Step 4: Add the new memory (with its ID) to our local list ---
+					updatedMemories.push(mem)
+				}
 
-            updatedMemories.push(mem)
-            console.log("[Aether] New/updated memory inserted:", mem.memory)
-          } catch (procErr) {
-            console.error("[Aether] Error during memory processing:", procErr)
-            // keep mem locally if vector ops fail
-            updatedMemories.push(mem)
-          }
-        }
+				// --- Step 5: Save the fully updated list to storage ---
+				await listStorage.set("memories", updatedMemories)
+				console.log(
+					"[Aether] Local memory database updated:",
+					updatedMemories.length
+				)
 
-        // Final deduplication before saving (by id or normalized text)
-        const uniqueMemories = Object.values(
-          updatedMemories.reduce((acc, m) => {
-            const key = (m.id ? String(m.id) : normalize(m.memory)) || normalize(m.memory)
-            acc[key] = m
-            return acc
-          }, {} as Record<string, MemoryObject>)
-        )
+				sendResponse({
+					status: "success",
+					added: memoryObjects.length,
+					currentCount: updatedMemories.length
+				})
+			} catch (err) {
+				console.error("[Aether] Error in savePrompt flow:", err)
+				sendResponse({ status: "error", error: err?.message ?? String(err) })
+			}
+		})()
 
-        await listStorage.set("memories", uniqueMemories)
-        console.log("[Aether] Local memory database cleaned and updated:", uniqueMemories.length)
+		return true
+	}
 
-        sendResponse({ status: "success", added: memoryObjects.length, currentCount: uniqueMemories.length })
-      } catch (err) {
-        console.error("[Aether] Error in savePrompt flow:", err)
-        sendResponse({ status: "error", error: err?.message ?? String(err) })
-      }
-    })()
+	// --- Handle Get Last 5 Prompts ---
+	if (message.action === "getLast5Prompts") {
+		console.log("[Aether] Get last 5 prompts request received")
+		;(async () => {
+			try {
+				const { listStorage } = await dbPromise
+				const allPrompts =
+					(await listStorage.get<PromptObject[]>("prompts")) || []
+				const last5Prompts = allPrompts.slice(-5).reverse()
+				sendResponse({ status: "success", prompts: last5Prompts })
+			} catch (err) {
+				console.error("[Aether] Error fetching prompts:", err)
+				sendResponse({ status: "error", error: err?.message ?? String(err) })
+			}
+		})()
+		return true
+	}
 
-    return true
-  }
+	// --- Handle Get Top K Memories ---
+	if (message.action === "getTopKMemories") {
+		console.log("[Aether] Get top K memories request received")
+		;(async () => {
+			try {
+				const { listStorage, vectorDb } = await dbPromise
+				const k = message.k || 5
+				const queryText = message.query?.trim()
 
-  // --- Handle Get Last 5 Prompts ---
-  if (message.action === "getLast5Prompts") {
-    console.log("[Aether] Get last 5 prompts request received")
+				console.log(
+					"[Aether] Query params:",
+					{ hasVectorDb: !!vectorDb, queryText, k }
+				)
 
-    ;(async () => {
-      try {
-        const { listStorage } = await dbPromise
-        const allPrompts = (await listStorage.get<PromptObject[]>("prompts")) || []
-        const last5Prompts = allPrompts.slice(-5).reverse()
-        sendResponse({ status: "success", prompts: last5Prompts })
-      } catch (err) {
-        console.error("[Aether] Error fetching prompts:", err)
-        sendResponse({ status: "error", error: err?.message ?? String(err) })
-      }
-    })()
+				if (!vectorDb || !queryText) {
+					console.warn("[Aether] No vectorDb or query provided. Using fallback.")
+					const allMemories =
+						(await listStorage.get<MemoryObject[]>("memories")) || []
+					const topK = allMemories.slice(-k).reverse()
+					sendResponse({ status: "success", mode: "recent", memories: topK })
+					return
+				}
 
-    return true
-  }
+				console.log(`Performing cosine similarity query for top ${k} results.`)
 
-  // --- Handle Get Top K Memories (Cosine Similarity) ---
-  if (message.action === "getTopKMemories") {
-    console.log("[Aether] Get top K memories request received")
+				try {
+					console.time("VectorQueryTime")
+					const raw = await vectorDb.query(queryText)
+					console.timeEnd("VectorQueryTime")
 
-    ;(async () => {
-      try {
-        const { listStorage, vectorDb } = await dbPromise
-        const k = message.k || 5
-        const queryText = message.query?.trim()
+					const parsedResults = parseQueryResults(raw)
+					if (!Array.isArray(parsedResults) || parsedResults.length === 0) {
+						console.warn("[Aether] No semantic matches found. Using fallback.")
+						const allMemories =
+							(await listStorage.get<MemoryObject[]>("memories")) || []
+						const topK = allMemories.slice(-k).reverse()
+						sendResponse({ status: "success", mode: "recent", memories: topK })
+						return
+					}
 
-        console.log("[Aether] Query params:", { hasVectorDb: !!vectorDb, queryText, k })
+					const topK = parsedResults.slice(0, k)
+					console.log("[Aether] Cosine similarity results (top K):", topK)
+					sendResponse({ status: "success", mode: "semantic", memories: topK })
+				} catch (err: any) {
+					console.error("[Aether] Vector query failed:", err)
+					const allMemories =
+						(await listStorage.get<MemoryObject[]>("memories")) || []
+					const topK = allMemories.slice(-k).reverse()
+					sendResponse({ status: "success", mode: "recent", memories: topK })
+				}
+			} catch (err) {
+				console.error("[Aether] Fatal error in getTopKMemories handler:", err)
+				sendResponse({ status: "error", error: err?.message ?? String(err) })
+			}
+		})()
+		return true
+	}
 
-        if (!vectorDb || !queryText) {
-          console.warn("[Aether] No vectorDb or query provided. Using fallback.")
-          const allMemories =
-            (await listStorage.get<MemoryObject[]>("memories")) || []
-          const topK = allMemories.slice(-k).reverse()
-          sendResponse({ status: "success", mode: "recent", memories: topK })
-          return
-        }
+	// --- Handle Delete Memory ---
+	if (message.action === "deleteMemory") {
+		console.log("[Aether] Delete memory request received", message.memory)
 
-        console.log(`Performing cosine similarity query for top ${k} results.`)
+		;(async () => {
+			try {
+				const { listStorage, vectorDb } = await dbPromise
+				const memoryToDelete = message.memory
 
-        try {
-          console.time("VectorQueryTime")
-          const raw = await vectorDb.query(queryText)
-          console.timeEnd("VectorQueryTime")
+				if (!memoryToDelete) {
+					throw new Error("No memory object provided for deletion.")
+				}
 
-          const parsedResults = parseQueryResults(raw)
-          if (!Array.isArray(parsedResults) || parsedResults.length === 0) {
-            console.warn("[Aether] No semantic matches found. Using fallback.")
-            const allMemories =
-              (await listStorage.get<MemoryObject[]>("memories")) || []
-            const topK = allMemories.slice(-k).reverse()
-            sendResponse({ status: "success", mode: "recent", memories: topK })
-            return
-          }
+				if (vectorDb && memoryToDelete.id) {
+					await deleteVector(vectorDb, memoryToDelete.id)
+				} else {
+					console.warn(
+						"[Aether] Cannot delete vector: No DB or memory has no ID."
+					)
+				}
 
-          const topK = parsedResults.slice(0, k)
-          console.log("[Aether] Cosine similarity results (top K):", topK)
-          sendResponse({ status: "success", mode: "semantic", memories: topK })
-        } catch (err: any) {
-          console.error("[Aether] Vector query failed:", err)
-          const allMemories =
-            (await listStorage.get<MemoryObject[]>("memories")) || []
-          const topK = allMemories.slice(-k).reverse()
-          sendResponse({ status: "success", mode: "recent", memories: topK })
-        }
-      } catch (err) {
-        console.error("[Aether] Fatal error in getTopKMemories handler:", err)
-        sendResponse({ status: "error", error: err?.message ?? String(err) })
-      }
-    })()
+				const currentMemories: MemoryObject[] =
+					(await listStorage.get<MemoryObject[]>("memories")) || []
 
-    return true
-  }
+				const newMemories = currentMemories.filter(
+					(m) => m.timestamp !== memoryToDelete.timestamp
+				)
+
+				await listStorage.set("memories", newMemories)
+				console.log(
+					`[Aether] Local memory updated. ${newMemories.length} remaining.`
+				)
+
+				sendResponse({
+					status: "success",
+					deleted: true,
+					remaining: newMemories.length
+				})
+			} catch (err) {
+				console.error("[Aether] Error in deleteMemory flow:", err)
+				sendResponse({ status: "error", error: err?.message ?? String(err) })
+			}
+		})()
+
+		return true
+	}
 })
