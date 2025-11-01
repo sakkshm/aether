@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Aether",
-  "version": "0.0.1",
-  "description": "A basic Plasmo extension.",
+  "version": "0.1.0",
+  "description": "A unified memory layer for LLMs to maintain and share context across chats and tools.",
   "permissions": [
     "storage"
   ],
