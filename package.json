@@ -2,8 +2,8 @@
   "name": "aether",
   "displayName": "Aether",
   "version": "0.0.1",
-  "description": "A basic Plasmo extension.",
-  "author": "Plasmo Corp. <foss@plasmo.com>",
+  "description": "A unified memory layer for LLMs to maintain and share context across chats and tools.",
+  "author": "Aether",
   "scripts": {
     "dev": "plasmo dev",
     "build": "plasmo build",
