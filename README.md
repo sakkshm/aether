@@ -1,4 +1,6 @@
+![Banner](./assets/Banner.png)
 # Aether: Your Personal AI Memory
+
 
 A privacy-first Chrome extension that builds a centralized, vectorized memory of your interests to automatically provide context to all your LLM chats.
 
@@ -38,45 +40,52 @@ This project is built using the [Plasmo](https://www.plasmo.com/) framework.
 
 ### Installation & Running
 
-1.  **Clone the repository:**
-    ```bash
-    git clone [https://github.com/sakkshm/aether.git](https://github.com/sakkshm/aether.git)
-    cd aether
-    ```
+1. **Clone the repository:**
 
-2.  **Install dependencies:**
-    ```bash
-    npm install
-    ```
+   ```bash
+   git clone https://github.com/sakkshm/aether.git
+   cd aether
+   ```
 
-3.  **Run the development server:**
-    ```bash
-    npm run dev
-    ```
-    This will create a `build/chrome-mv3-dev` directory and watch for file changes.
+2. **Install dependencies:**
 
-4.  **Load the extension in your browser:**
-    * Open Google Chrome and navigate to `chrome://extensions`.
-    * Enable **"Developer mode"** (usually a toggle in the top-right corner).
-    * Click the **"Load unpacked"** button.
-    * Select the `build/chrome-mv3-dev` folder from the project directory.
+   ```bash
+   npm install
+   ```
 
-5.  **Test it!**
-    * Go to a supported site (like gemini.google.com).
-    * You should see the Aether bubble icon appear in the text area.
-    * Try writing a prompt like, "I'm looking for a new laptop. I prefer 16-inch screens and I am a TypeScript developer."
-    * Submit the prompt.
-    * Click the extension icon in the toolbar to open the popup. You should see new memories like "User is a TypeScript developer" or "User prefers 16-inch screens."
-    * In a new chat, type "What laptop should I get?" and click the Aether bubble. It will inject your preferences!
+3. **Run the development server:**
+
+   ```bash
+   npm run dev
+   ```
+
+   This will create a `build/chrome-mv3-dev` directory and watch for file changes.
+
+4. **Load the extension in your browser:**
+
+   * Open Google Chrome and navigate to `chrome://extensions`.
+   * Enable **"Developer mode"** (usually a toggle in the top-right corner).
+   * Click the **"Load unpacked"** button.
+   * Select the `build/chrome-mv3-dev` folder from the project directory.
+
+5. **Test it!**
+
+   * Go to a supported site (like gemini.google.com).
+   * You should see the Aether bubble icon appear in the text area.
+   * Try writing a prompt like, "I'm looking for a new laptop. I prefer 16-inch screens and I am a TypeScript developer."
+   * Submit the prompt.
+   * Click the extension icon in the toolbar to open the popup. You should see new memories like "User is a TypeScript developer" or "User prefers 16-inch screens."
+   * In a new chat, type "What laptop should I get?" and click the Aether bubble. It will inject your preferences!
 
 ---
 
 ## How It Works (Technical Overview)
+![Mock](./assets/Mock.png)
 
-1.  **Prompt Capture (`content.ts`):** A content script securely listens for 'send' button clicks or 'Enter' presses on supported sites.
-2.  **Local Inference (`summarizer.ts`):** The captured prompt is sent to Chrome's native `Summarizer` API with a custom prompt, forcing it to extract user preferences, hobbies, etc., as structured JSON.
-3.  **Vector Storage (`background.ts`):** The extracted memories (e.g., "User enjoys classical music") are vectorized using `@xenova/transformers` (running locally) and stored in an on-device vector DB (`@babycommando/entity-db`). The background script also handles deduplication and conflict resolution (e.g., "user likes" vs. "user dislikes").
-4.  **Context Injection (`bubbleButton.tsx`):** The UI button queries the vector DB with the *current* text in the prompt box. The top K-nearest (most relevant) memories are retrieved and formatted for injection.
+1. **Prompt Capture (`content.ts`):** A content script securely listens for 'send' button clicks or 'Enter' presses on supported sites.
+2. **Local Inference (`summarizer.ts`):** The captured prompt is sent to Chrome's native `Summarizer` API with a custom prompt, forcing it to extract user preferences, hobbies, etc., as structured JSON.
+3. **Vector Storage (`background.ts`):** The extracted memories (e.g., "User enjoys classical music") are vectorized using `@xenova/transformers` (running locally) and stored in an on-device vector DB (`@babycommando/entity-db`). The background script also handles deduplication and conflict resolution (e.g., "user likes" vs. "user dislikes").
+4. **Context Injection (`bubbleButton.tsx`):** The UI button queries the vector DB with the *current* text in the prompt box. The top K-nearest (most relevant) memories are retrieved and formatted for injection.
 
 ## Tech Stack
 
