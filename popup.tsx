@@ -184,7 +184,7 @@ export default function PopupIndex() {
           style={{
             textAlign: "center",
             color: UI_COLORS.textLowEmphasis,
-            fontSize: "1em",
+            fontSize: "1.5em",
             marginTop: 40
           }}>
           No memories saved yet.
